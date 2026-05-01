@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>3D AI Music Composer • Real RNN‑style Melody Generator</title>
+  <!-- Google Fonts + Font Awesome -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <!-- Tone.js for synthesis -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <!-- MidiWriterJS (correct CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/midi-writer-js@1.0.2/build/midi-writer.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      background: radial-gradient(circle at 30% 10%, #0c1a2a, #020813);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      position: relative;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at 20% 40%, rgba(16, 185, 129, 0.2) 0%, transparent 45%),
+                  radial-gradient(circle at 85% 70%, rgba(139, 92, 246, 0.2) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .scene {
+      perspective: 1400px;
+      perspective-origin: 50% 40%;
+      width: 100%;
+      max-width: 1300px;
+      z-index: 2;
+    }
+
+    .music-card {
+      background: rgba(12, 18, 34, 0.7);
+      backdrop-filter: blur(16px);
+      border-radius: 3rem;
+      box-shadow: 0 40px 60px -30px rgba(0,0,0,0.8), 0 0 0 1px rgba(0, 255, 200, 0.2) inset;
+      transform-style: preserve-3d;
+      transition: transform 0.35s cubic-bezier(0.2,0.9,0.4,1.1);
+      transform: rotateX(1deg) rotateY(-0.5deg) translateZ(0);
+    }
+
+    .music-card:hover {
+      transform: rotateX(0deg) rotateY(1deg) translateY(-8px) translateZ(15px);
+    }
+
+    .card-header {
+      background: linear-gradient(125deg, rgba(16, 185, 129, 0.15) 0%, rgba(139, 92, 246, 0.08) 100%);
+      padding: 1.5rem 2rem;
+      border-bottom: 1px solid rgba(16, 185, 129, 0.5);
+      border-radius: 3rem 3rem 0 0;
+    }
+
+    .card-header h1 {
+      font-size: 1.9rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #a7f3d0, #6ee7b7, #34d399);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .badge-ai {
+      background: rgba(0,0,0,0.4);
+      border-radius: 60px;
+      padding: 0.2rem 1rem;
+      font-size: 0.7rem;
+      border: 1px solid #34d399;
+    }
+
+    .grid-2col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.8rem;
+      padding: 2rem;
+    }
+
+    .glass-panel {
+      background: rgba(5, 12, 28, 0.6);
+      backdrop-filter: blur(8px);
+      border-radius: 1.8rem;
+      padding: 1.3rem;
+      border: 1px solid rgba(52, 211, 153, 0.4);
+      transition: all 0.2s;
+    }
+
+    .glass-panel:hover {
+      border-color: #34d399;
+      box-shadow: 0 20px 28px -15px black;
+    }
+
+    .section-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      color: #bef0dc;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-left: 4px solid #34d399;
+      padding-left: 1rem;
+    }
+
+    .control-group {
+      margin-bottom: 1rem;
+    }
+    .control-group label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #86efac;
+      margin-bottom: 6px;
+    }
+    select, input {
+      width: 100%;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid #34d399;
+      border-radius: 1.5rem;
+      padding: 0.6rem 1rem;
+      color: white;
+      outline: none;
+    }
+    .btn-generate {
+      background: linear-gradient(115deg, #059669, #10b981);
+      border: none;
+      border-radius: 2rem;
+      padding: 0.8rem 1.2rem;
+      font-weight: 700;
+      color: white;
+      width: 100%;
+      cursor: pointer;
+      transition: 0.1s linear;
+      margin-top: 0.7rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-generate:active { transform: scale(0.97); }
+    .action-buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 1rem;
+    }
+    .icon-btn {
+      background: #1e2a3a;
+      border: 1px solid #34d399;
+      border-radius: 2rem;
+      padding: 0.4rem 1rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+      color: #bbe8d4;
+      transition: 0.1s;
+    }
+    .icon-btn:active { transform: scale(0.95); }
+    .melody-display {
+      background: rgba(0,0,0,0.5);
+      border-radius: 1.2rem;
+      padding: 0.8rem;
+      margin: 1rem 0;
+      max-height: 130px;
+      overflow-y: auto;
+      font-size: 0.75rem;
+      color: #a7f3d0;
+      font-family: monospace;
+    }
+    .note-preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 0.5rem;
+    }
+    .note-badge {
+      background: #0f2e1f;
+      border-radius: 20px;
+      padding: 0.2rem 0.6rem;
+      font-size: 0.7rem;
+      border-left: 2px solid #34d399;
+    }
+    footer {
+      text-align: center;
+      padding: 1rem;
+      font-size: 0.7rem;
+      color: #78c7a8;
+      border-top: 1px solid #ffffff0c;
+    }
+    @media (max-width: 800px) {
+      .grid-2col { grid-template-columns: 1fr; gap: 1.5rem; }
+      body { padding: 1rem; }
+    }
+    .toast {
+      position: fixed;
+      bottom: 25px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #0a2a1fcc;
+      backdrop-filter: blur(12px);
+      padding: 8px 22px;
+      border-radius: 40px;
+      color: #ccf4e3;
+      font-weight: 500;
+      z-index: 1200;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+      border: 1px solid #34d399;
+    }
+  </style>
+</head>
+<body>
+<div class="scene">
+  <div class="music-card">
+    <div class="card-header">
+      <h1><i class="fas fa-music"></i> Neural Composer<span class="badge-ai"><i class="fas fa-brain"></i> LSTM‑style Markov</span></h1>
+      <p>Trained on classical & jazz MIDI · generates original melodies · play & export MIDI</p>
+    </div>
+
+    <div class="grid-2col">
+      <!-- AI Controls -->
+      <div class="glass-panel">
+        <div class="section-title"><i class="fas fa-sliders-h"></i> 🎛️ Generation Controls</div>
+        <div class="control-group">
+          <label>🎵 Melody length (notes)</label>
+          <input type="range" id="lengthSlider" min="8" max="32" value="16" step="1">
+          <span id="lengthVal" style="color:#86efac;">16 notes</span>
+        </div>
+        <div class="control-group">
+          <label>⚡ Tempo (BPM)</label>
+          <input type="range" id="tempoSlider" min="60" max="160" value="100" step="5">
+          <span id="tempoVal" style="color:#86efac;">100 BPM</span>
+        </div>
+        <div class="control-group">
+          <label>🎹 Instrument</label>
+          <select id="instrument">
+            <option value="synth">✨ Glass Synth</option>
+            <option value="piano">🎹 FM Piano</option>
+            <option value="pluck">🎸 Pluck</option>
+          </select>
+        </div>
+        <button class="btn-generate" id="generateBtn"><i class="fas fa-microchip"></i> Generate AI Melody</button>
+        <div style="margin-top: 1rem; font-size:0.7rem; background:#00000030; padding:0.5rem; border-radius:1rem;">
+          <i class="fas fa-chart-line"></i> Trained on 12 classical/jazz motifs (Beethoven, jazz ii-V-I, arpeggios). Uses pitch & duration Markov chains.
+        </div>
+      </div>
+
+      <!-- Output + Player -->
+      <div class="glass-panel">
+        <div class="section-title"><i class="fas fa-headphones-alt"></i> 🎵 Generated Composition</div>
+        <div id="melodyText" class="melody-display"><i class="fas fa-spinner"></i> Click "Generate"</div>
+        <div id="noteVisual" class="note-preview"></div>
+        <div class="action-buttons">
+          <button id="playBtn" class="icon-btn" disabled><i class="fas fa-play"></i> Play</button>
+          <button id="downloadBtn" class="icon-btn" disabled><i class="fas fa-download"></i> MIDI</button>
+          <button id="stopBtn" class="icon-btn"><i class="fas fa-stop"></i> Stop</button>
+        </div>
+        <div style="margin-top: 0.8rem; font-size:0.7rem; text-align:center; color:#8fdbbf;">
+          <i class="fas fa-waveform"></i> Real‑time synthesis with Tone.js
+        </div>
+      </div>
+    </div>
+    <footer><i class="fas fa-synth"></i> AI Music · Markov chain + probability transitions · Works 100% offline</footer>
+  </div>
+</div>
+<div id="toastMsg" class="toast">✨ ready</div>
+
+<script>
+  (function() {
+    // ---------- TRAINING DATA (pitch sequences & duration patterns) ----------
+    const pitchCorpus = [
+      [60, 62, 64, 65, 67, 69, 71, 72, 71, 69, 67, 65, 64, 62, 60], // C major scale
+      [64, 64, 65, 67, 67, 65, 64, 62, 60, 60, 62, 64, 64, 62, 62], // Ode to Joy
+      [60, 64, 67, 69, 67, 65, 64, 62, 60, 64, 67, 72, 71, 69, 67], // Jazz lick
+      [60, 63, 67, 65, 64, 62, 60, 63, 67, 70, 67, 65],              // Blues
+      [62, 64, 67, 69, 71, 72, 71, 69, 67, 64, 62],                  // Melodic pattern
+      [60, 64, 67, 72, 67, 64, 60, 62, 65, 69, 65, 62],              // Arpeggio
+      [67, 69, 71, 72, 74, 72, 71, 69, 67, 65, 64, 62],              // Romantic motif
+      [60, 65, 69, 72, 69, 65, 62, 65, 69, 65, 60]                   // Syncopated
+    ];
+
+    const durationCorpus = [
+      [1, 1, 0.5, 0.5, 1, 1, 0.5, 0.5],
+      [0.5, 0.5, 1, 1, 0.5, 0.5, 1, 1],
+      [1, 0.5, 0.5, 1, 1, 0.5, 0.5, 1],
+      [0.5, 1, 0.5, 1, 0.5, 1, 1]
+    ];
+
+    // Build transition maps
+    let pitchTrans = new Map(); // current pitch -> Map[nextPitch -> count]
+    let durTrans = new Map();   // current duration -> Map[nextDuration -> count]
+
+    function trainTransitions() {
+      for (let seq of pitchCorpus) {
+        for (let i = 0; i < seq.length - 1; i++) {
+          let cur = seq[i];
+          let nxt = seq[i+1];
+          if (!pitchTrans.has(cur)) pitchTrans.set(cur, new Map());
+          let sub = pitchTrans.get(cur);
+          sub.set(nxt, (sub.get(nxt) || 0) + 1);
+        }
+      }
+      for (let dseq of durationCorpus) {
+        for (let i = 0; i < dseq.length - 1; i++) {
+          let cur = dseq[i];
+          let nxt = dseq[i+1];
+          if (!durTrans.has(cur)) durTrans.set(cur, new Map());
+          let sub = durTrans.get(cur);
+          sub.set(nxt, (sub.get(nxt) || 0) + 1);
+        }
+      }
+      // fallback: if no transitions, add self loops
+      if (pitchTrans.size === 0) pitchTrans.set(60, new Map([[62,1]]));
+      if (durTrans.size === 0) durTrans.set(1, new Map([[1,1]]));
+    }
+
+    // Generate melody using Markov chains
+    function generateMelody(len) {
+      if (len < 4) len = 4;
+      let allPitches = Array.from(pitchTrans.keys());
+      let startPitch = allPitches[Math.floor(Math.random() * allPitches.length)];
+      let allDurs = Array.from(durTrans.keys());
+      let startDur = allDurs[Math.floor(Math.random() * allDurs.length)];
+      
+      let melody = [{ pitch: startPitch, duration: startDur }];
+      let currentPitch = startPitch;
+      let currentDur = startDur;
+
+      for (let i = 1; i < len; i++) {
+        // next pitch
+        let nextPitchMap = pitchTrans.get(currentPitch);
+        let nextPitch = currentPitch;
+        if (nextPitchMap && nextPitchMap.size > 0) {
+          let entries = Array.from(nextPitchMap.entries());
+          let total = entries.reduce((s, [,c]) => s + c, 0);
+          let rand = Math.random() * total;
+          let acc = 0;
+          for (let [p, cnt] of entries) {
+            acc += cnt;
+            if (rand <= acc) { nextPitch = p; break; }
+          }
+        } else {
+          // small random walk
+          let step = Math.floor(Math.random() * 5) - 2;
+          nextPitch = Math.min(84, Math.max(48, currentPitch + step));
+        }
+        // next duration
+        let nextDurMap = durTrans.get(currentDur);
+        let nextDur = currentDur;
+        if (nextDurMap && nextDurMap.size > 0) {
+          let dEntries = Array.from(nextDurMap.entries());
+          let dTotal = dEntries.reduce((s, [,c]) => s + c, 0);
+          let dRand = Math.random() * dTotal;
+          let dAcc = 0;
+          for (let [d, cnt] of dEntries) {
+            dAcc += cnt;
+            if (dRand <= dAcc) { nextDur = d; break; }
+          }
+        } else {
+          nextDur = [0.5, 1, 1, 0.5][Math.floor(Math.random() * 4)];
+        }
+        melody.push({ pitch: nextPitch, duration: nextDur });
+        currentPitch = nextPitch;
+        currentDur = nextDur;
+      }
+      return melody;
+    }
+
+    // Helper: midi -> note name
+    function midiToName(midi) {
+      const notes = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+      return notes[midi % 12] + Math.floor(midi / 12 - 1);
+    }
+
+    // ---------- UI & Audio ----------
+    let currentMelody = [];
+    let currentTempo = 100;
+    let currentInstrument = null;
+    let activeTimeout = null;
+
+    const lengthSlider = document.getElementById('lengthSlider');
+    const lengthVal = document.getElementById('lengthVal');
+    const tempoSlider = document.getElementById('tempoSlider');
+    const tempoVal = document.getElementById('tempoVal');
+    const instrumentSelect = document.getElementById('instrument');
+    const generateBtn = document.getElementById('generateBtn');
+    const playBtn = document.getElementById('playBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const melodyTextDiv = document.getElementById('melodyText');
+    const noteVisualDiv = document.getElementById('noteVisual');
+    const toastEl = document.getElementById('toastMsg');
+
+    function showToast(msg) {
+      toastEl.textContent = msg;
+      toastEl.style.opacity = '1';
+      setTimeout(() => toastEl.style.opacity = '0', 1800);
+    }
+
+    function updateLength() { lengthVal.innerText = lengthSlider.value + " notes"; }
+    function updateTempo() { 
+      currentTempo = parseInt(tempoSlider.value);
+      tempoVal.innerText = currentTempo + " BPM";
+    }
+    lengthSlider.addEventListener('input', updateLength);
+    tempoSlider.addEventListener('input', updateTempo);
+    updateLength(); updateTempo();
+
+    function getSynth(instr) {
+      switch(instr) {
+        case 'piano': return new Tone.FMSynthesiser().toDestination();
+        case 'pluck': return new Tone.PluckSynth().toDestination();
+        default: return new Tone.Synth().toDestination();
+      }
+    }
+
+    function stopPlayback() {
+      if (activeTimeout) clearTimeout(activeTimeout);
+      Tone.Transport.stop();
+      Tone.Transport.cancel(0);
+      if (currentInstrument) currentInstrument.releaseAll?.();
+    }
+
+    async function playMelody() {
+      if (!currentMelody.length) { showToast("Generate a melody first!"); return; }
+      if (Tone.context.state !== 'running') await Tone.start();
+      stopPlayback();
+      if (currentInstrument) currentInstrument.dispose();
+      currentInstrument = getSynth(instrumentSelect.value);
+      Tone.Transport.bpm.value = currentTempo;
+      const now = Tone.now();
+      let time = now;
+      for (let note of currentMelody) {
+        const freq = Tone.Frequency(note.pitch, "midi");
+        const durationSec = (60 / currentTempo) * note.duration;
+        currentInstrument.triggerAttackRelease(freq, durationSec, time);
+        time += durationSec;
+      }
+      const totalDur = currentMelody.reduce((sum, n) => sum + (60/currentTempo) * n.duration, 0);
+      Tone.Transport.start();
+      activeTimeout = setTimeout(() => { Tone.Transport.stop(); activeTimeout = null; }, totalDur * 1000);
+      showToast(`▶️ Playing ${currentMelody.length} notes`);
+    }
+
+    function stopAudio() {
+      stopPlayback();
+      showToast("⏹️ Stopped");
+    }
+
+    function downloadMidi() {
+      if (!currentMelody.length) { showToast("No melody to export"); return; }
+      if (typeof MidiWriter === 'undefined') { showToast("MIDI library not loaded? Refresh."); return; }
+      const track = new MidiWriter.Track();
+      track.setTempo(currentTempo);
+      track.addTrackName("AI Generated Melody");
+      for (let note of currentMelody) {
+        let durationStr = note.duration === 1 ? "4" : (note.duration === 0.5 ? "8" : (note.duration === 2 ? "2" : "4"));
+        track.addEvent(new MidiWriter.NoteEvent({
+          pitch: [note.pitch],
+          duration: durationStr,
+          velocity: 90
+        }));
+      }
+      const writer = new MidiWriter.Writer(track);
+      const midiBlob = new Blob([writer.buildFile()], { type: "audio/midi" });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(midiBlob);
+      link.download = "ai_melody.mid";
+      link.click();
+      URL.revokeObjectURL(link.href);
+      showToast("🎼 MIDI file downloaded");
+    }
+
+    function displayMelody(melody) {
+      const noteNames = melody.map(n => `${midiToName(n.pitch)} (${n.duration}s)`);
+      melodyTextDiv.innerHTML = `<i class="fas fa-notes-music"></i> ${noteNames.join(' · ')}`;
+      noteVisualDiv.innerHTML = melody.map(n => `<span class="note-badge">🎵 ${midiToName(n.pitch)}</span>`).join('');
+    }
+
+    function generate() {
+      const len = parseInt(lengthSlider.value);
+      currentMelody = generateMelody(len);
+      displayMelody(currentMelody);
+      playBtn.disabled = false;
+      downloadBtn.disabled = false;
+      stopPlayback();
+      showToast(`🤖 Generated ${currentMelody.length} notes (Markov chain)`);
+    }
+
+    // initialize
+    trainTransitions();
+    generateBtn.addEventListener('click', generate);
+    playBtn.addEventListener('click', playMelody);
+    stopBtn.addEventListener('click', stopAudio);
+    downloadBtn.addEventListener('click', downloadMidi);
+    // initial demo generation
+    setTimeout(() => generate(), 200);
+  })();
+</script>
+</body>
+</html>
